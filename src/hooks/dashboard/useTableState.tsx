@@ -1,37 +1,104 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useToast } from "@/components/ui/use-toast";
 import type { TableLayout } from "@/types/staff";
-
-const initialTables: TableLayout[] = [
-  { id: 1, number: 1, capacity: 4, status: "occupied", section: "indoor" },
-  { id: 2, number: 2, capacity: 2, status: "available", section: "indoor" },
-  { id: 3, number: 3, capacity: 6, status: "reserved", section: "outdoor" },
-  { id: 4, number: 4, capacity: 4, status: "available", section: "outdoor" },
-  { id: 5, number: 5, capacity: 8, status: "occupied", section: "indoor" },
-  { id: 6, number: 6, capacity: 2, status: "available", section: "bar" },
-  { id: 7, number: 7, capacity: 4, status: "occupied", section: "bar" },
-  { id: 8, number: 8, capacity: 6, status: "available", section: "outdoor" }
-];
+import { fetchTables, addTable as addTableService, updateTableStatus as updateTableStatusService } from "@/services/tableService";
+import { supabase } from "@/integrations/supabase/client";
 
 export const useTableState = () => {
-  const [tables, setTables] = useState<TableLayout[]>(initialTables);
+  const [tables, setTables] = useState<TableLayout[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
-  const addTable = (table: Omit<TableLayout, "id">) => {
-    const newTable: TableLayout = {
-      ...table,
-      id: tables.length + 1,
+  // Fetch initial tables data
+  useEffect(() => {
+    const loadTables = async () => {
+      try {
+        const data = await fetchTables();
+        setTables(data);
+      } catch (error) {
+        console.error("Error loading tables:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load tables",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setTables([...tables, newTable]);
+
+    loadTables();
+  }, [toast]);
+
+  // Set up real-time subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel('table-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tables'
+        },
+        (payload) => {
+          console.log('Real-time update:', payload);
+          if (payload.eventType === 'INSERT') {
+            setTables(current => [...current, payload.new as TableLayout]);
+          } else if (payload.eventType === 'UPDATE') {
+            setTables(current =>
+              current.map(table =>
+                table.id === payload.new.id ? { ...table, ...payload.new } : table
+              )
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const addTable = async (tableData: Omit<TableLayout, "id">) => {
+    try {
+      await addTableService(tableData);
+      toast({
+        title: "Success",
+        description: "Table added successfully",
+      });
+    } catch (error) {
+      console.error("Error adding table:", error);
+      toast({
+        title: "Error",
+        description: "Failed to add table",
+        variant: "destructive",
+      });
+    }
   };
 
-  const updateTableStatus = (tableId: number, status: TableLayout["status"]) => {
-    setTables(tables.map(table => 
-      table.id === tableId ? { ...table, status } : table
-    ));
+  const updateTableStatus = async (tableId: number, status: TableLayout["status"]) => {
+    try {
+      await updateTableStatusService(tableId, status);
+      toast({
+        title: "Success",
+        description: `Table status updated to ${status}`,
+      });
+    } catch (error) {
+      console.error("Error updating table status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update table status",
+        variant: "destructive",
+      });
+    }
   };
 
   return {
     tables,
+    isLoading,
     addTable,
     updateTableStatus,
   };
