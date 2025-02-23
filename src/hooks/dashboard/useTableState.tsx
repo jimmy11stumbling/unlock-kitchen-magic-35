@@ -45,11 +45,17 @@ export const useTableState = () => {
         (payload) => {
           console.log('Real-time update:', payload);
           if (payload.eventType === 'INSERT') {
-            setTables(current => [...current, payload.new as TableLayout]);
+            const newTable = {
+              ...payload.new,
+              section: payload.new.section as "indoor" | "outdoor" | "bar"
+            } as TableLayout;
+            setTables(current => [...current, newTable]);
           } else if (payload.eventType === 'UPDATE') {
             setTables(current =>
               current.map(table =>
-                table.id === payload.new.id ? { ...table, ...payload.new } : table
+                table.id === payload.new.id 
+                  ? { ...table, ...payload.new, section: payload.new.section as "indoor" | "outdoor" | "bar" }
+                  : table
               )
             );
           }
